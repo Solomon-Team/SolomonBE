@@ -6,9 +6,9 @@ class Item(Base):
     __tablename__ = "items"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(120), nullable=False)      # unique case-insensitive via index (alembic)
-    code = Column(String(60), nullable=False, unique=True)   # generated backend
-    category = Column(String(50), nullable=False)   # FK-like to item_categories.code
+    name = Column(String(120), nullable=False)
+    code = Column(String(60), nullable=False, unique=True)
+    category = Column(String(50), nullable=False)
     stack_size = Column(Integer, nullable=False, default=64)
     is_active = Column(Boolean, nullable=False, default=True)
 

@@ -1,113 +1,119 @@
 # app/routes/trades.py
-import json
-from datetime import timezone
 from decimal import Decimal
-
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.models.item import Item
-from app.schemas.trade import TradeLogCreate, TradeLogOut
 from app.models.trade import Trade
-from app.models.user import User as UserModel
-from app.services.deps import get_db, get_current_user
+from app.models.trade_line import TradeLine
+from app.schemas.trade import TradeOut, TradeLineOut, TradeCreate
 from app.models.user import User
-from app.services.valuation import get_currency_item_for_structure, get_item_value_at
+from app.services.deps import get_db, get_current_user, get_current_structure
+from app.services.valuation import get_item_value_at
 
-router = APIRouter()
+router = APIRouter(prefix="/trades", tags=["Trades"])
 
-@router.post("/", response_model=TradeLogOut)
+
+def _compute_profit(db: Session, t: Trade) -> str | None:
+    """
+    Compute profit at the trade timestamp using historical valuations.
+    Profit = sum(value(item)*qty for GAINED) - sum(value(item)*qty for GIVEN)
+
+    Returns a stringified Decimal (for JSON-safe currency), or None if any line
+    is missing a valuation at that timestamp.
+    """
+    structure_id = t.structure_id
+    ts = t.timestamp
+
+    lines = db.query(TradeLine).filter_by(trade_id=t.id).all()
+    if not lines:
+        return "0"
+
+    total = Decimal("0")
+    for l in lines:
+        v = get_item_value_at(db, structure_id, l.item_id, ts)  # Decimal | None
+        if v is None:
+            return None  # unpriced: missing valuation for at least one line
+        line_val = v * Decimal(l.quantity)
+        if l.direction == "GAINED":
+            total += line_val
+        else:  # "GIVEN"
+            total -= line_val
+
+    return str(total)
+
+
+def _build_trade_out(db: Session, t: Trade) -> TradeOut:
+    lines = db.query(TradeLine).filter_by(trade_id=t.id).all()
+    gained = [l for l in lines if l.direction == "GAINED"]
+    given  = [l for l in lines if l.direction == "GIVEN"]
+
+    profit = _compute_profit(db, t)
+
+    return TradeOut(
+        id=t.id,
+        timestamp=t.timestamp,
+        from_location_id=t.from_location_id,
+        to_location_id=t.to_location_id,
+        gained=[
+            TradeLineOut(
+                id=l.id,
+                item_id=l.item_id,
+                direction=l.direction,
+                quantity=l.quantity,
+                from_location_id=l.from_location_id,
+                to_location_id=l.to_location_id,
+            )
+            for l in gained
+        ],
+        given=[
+            TradeLineOut(
+                id=l.id,
+                item_id=l.item_id,
+                direction=l.direction,
+                quantity=l.quantity,
+                from_location_id=l.from_location_id,
+                to_location_id=l.to_location_id,
+            )
+            for l in given
+        ],
+        profit=profit,
+    )
+
+
+@router.post("", response_model=TradeOut)
 def create_trade(
-    trade: TradeLogCreate,
+    payload: TradeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    structure_id: str = Depends(get_current_structure),
 ):
-    dbt = Trade(
-        user_id=current_user.id,
-        structure_id=current_user.structure_id,
-        items_given=json.dumps([i.dict() for i in trade.items_given]),
-        items_gained=json.dumps([i.dict() for i in trade.items_gained]),
-        from_location=trade.from_location,
-        to_location=trade.to_location,
+    t = Trade(
+        structure_id=structure_id,
+        user_id=user.id,
+        timestamp=payload.timestamp,
+        from_location_id=payload.from_location_id,
+        to_location_id=payload.to_location_id,
     )
-    db.add(dbt); db.commit(); db.refresh(dbt)
-    return TradeLogOut(
-        id=dbt.id,
-        timestamp=dbt.timestamp.isoformat(),
-        items_given=json.loads(dbt.items_given),
-        items_gained=json.loads(dbt.items_gained),
-        from_location=dbt.from_location,
-        to_location=dbt.to_location,
-        actor_user_id=current_user.id,         # NEW
-        actor_username=current_user.username,  # NEW
-    )
+    db.add(t)
+    db.flush()
 
-@router.get("/", response_model=list[TradeLogOut])
-def get_trades(
-    player: str | None = Query(None, description="actor userId (number) or username"),
+    for line in payload.lines:
+        # Pydantic v2: model_dump() returns dict with matching keys
+        db.add(TradeLine(trade_id=t.id, **line.model_dump()))
+
+    db.commit()
+    db.refresh(t)
+    return _build_trade_out(db, t)
+
+
+@router.get("", response_model=list[TradeOut])
+def list_trades(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     q = db.query(Trade).filter(Trade.structure_id == current_user.structure_id)
-
-    # Non-admins only see their own
     if current_user.role != "ADMIN":
         q = q.filter(Trade.user_id == current_user.id)
-    else:
-        # Optional filter by actor (user_id or username) — admin only
-        if player:
-            if player.isdigit():
-                q = q.filter(Trade.user_id == int(player))
-            else:
-                q = q.join(UserModel).filter(UserModel.username == player)
 
     trades = q.order_by(Trade.timestamp.desc()).all()
-    out = []
-    # Per mappare nome->id una volta sola (case-insensitive)
-    all_items = db.query(Item).all()
-    item_by_name = {i.name.lower(): i.id for i in all_items}
-
-    for t in trades:
-        profit = Decimal("0")
-        unpriced = False
-
-        currency_item_id = get_currency_item_for_structure(db, t.structure_id)
-        currency_name = None
-        if currency_item_id:
-            ci = db.query(Item).get(currency_item_id)
-            currency_name = ci.name if ci else None
-
-        trade_time = t.timestamp if t.timestamp.tzinfo else t.timestamp.replace(tzinfo=timezone.utc)
-
-        def add_value(entries, sign):
-            nonlocal profit, unpriced
-            for e in entries:
-                nm = (e.get("name") or "").lower()
-                qty = int(e.get("quantity") or 0)
-                item_id = item_by_name.get(nm)
-                if not item_id or qty <= 0:
-                    unpriced = True
-                    continue
-                val = get_item_value_at(db, t.structure_id, item_id, trade_time)
-                if val is None:
-                    unpriced = True
-                else:
-                    profit += sign * val * Decimal(qty)
-
-        add_value(json.loads(t.items_gained), Decimal("1"))
-        add_value(json.loads(t.items_given), Decimal("-1"))
-
-        out.append(TradeLogOut(
-            id=t.id,
-            timestamp=t.timestamp.isoformat(),
-            items_given=json.loads(t.items_given),
-            items_gained=json.loads(t.items_gained),
-            from_location=t.from_location,
-            to_location=t.to_location,
-            actor_user_id=t.user_id,
-            actor_username=t.user.username if t.user else "",
-            profit=str(profit) if currency_item_id else None,
-            currency_item_name=currency_name,
-            unpriced=unpriced or (currency_item_id is None),
-        ))
-    return out
+    return [_build_trade_out(db, t) for t in trades]

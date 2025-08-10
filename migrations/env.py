@@ -6,6 +6,7 @@ from sqlalchemy import pool
 from alembic import context
 import os
 
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -26,7 +27,7 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from app.core.database import Base
-from app import models  # ⬇️ ensures user.py/trade.py are imported, tables get registered
+from app import models
 
 target_metadata = Base.metadata
 
