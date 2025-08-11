@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
-from app.services.deps import get_db, get_current_user
+from app.services.deps import get_db, get_current_user, require_perm
 from app.models.user import User
 from app.models.item_value import ItemValue
 from app.models.item import Item
@@ -10,13 +10,10 @@ from decimal import Decimal
 
 router = APIRouter(prefix="/item-values", tags=["item-values"])
 
-def ensure_admin(u: User):
-    if u.role != "ADMIN":
-        raise HTTPException(403, "Admin only")
+manage_vals = require_perm("valuations.manage")
 
 @router.post("", response_model=ItemValueOut, status_code=201)
-def create_value(payload: ItemValueCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    ensure_admin(user)
+def create_value(payload: ItemValueCreate, db: Session = Depends(get_db), user: User = Depends(manage_vals)):
     item = db.query(Item).get(payload.item_id)
     if not item or not item.is_active:
         raise HTTPException(400, "Invalid item")

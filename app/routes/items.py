@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from app.services.deps import get_db, get_current_user
+from app.services.deps import get_db, get_current_user, require_perm
 from app.models.user import User
 from app.models.item import Item
 from app.schemas.item import ItemCreate, ItemUpdate, ItemOut
@@ -10,9 +10,7 @@ from app.services.codegen import generate_unique_item_code
 
 router = APIRouter(prefix="/items", tags=["items"])
 
-def ensure_can_manage_items(u: User):
-    if u.role not in ("ADMIN", "GUILDMASTER"):
-        raise HTTPException(403, "Not allowed")
+manage_items = require_perm("items.manage")
 
 @router.get("", response_model=List[ItemOut])
 def list_items(
@@ -33,9 +31,7 @@ def list_items(
     return query.order_by(Item.name.asc()).all()
 
 @router.post("", response_model=ItemOut, status_code=201)
-def create_item(payload: ItemCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    ensure_can_manage_items(user)
-    # case-insensitive unique name check
+def create_item(payload: ItemCreate, db: Session = Depends(get_db), user: User = Depends(manage_items)):
     exists = db.query(Item).filter(func.lower(Item.name) == payload.name.lower()).first()
     if exists:
         raise HTTPException(409, "Item name already exists")
@@ -52,8 +48,7 @@ def create_item(payload: ItemCreate, db: Session = Depends(get_db), user: User =
     return item
 
 @router.patch("/{item_id}", response_model=ItemOut)
-def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    ensure_can_manage_items(user)
+def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db), user: User = Depends(manage_items)):
     item = db.query(Item).get(item_id)
     if not item:
         raise HTTPException(404, "Item not found")

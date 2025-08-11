@@ -1,6 +1,6 @@
 import logging
 from fastapi import Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 
@@ -8,7 +8,6 @@ from app.core.database import SessionLocal
 from app.core.security import decode_jwt_token
 from app.models.user import User
 
-# simple logger
 logger = logging.getLogger("bookkeeper.deps")
 logger.setLevel(logging.INFO)
 
@@ -35,10 +34,30 @@ def get_current_user(
     except (JWTError, ValueError):
         raise HTTPException(401, "Invalid token")
 
-    user = db.query(User).filter(User.id == user_id).first()
+    # Eager-load role for permission checks
+    user = (
+        db.query(User)
+        .options(joinedload(User.roles))
+        .filter(User.id == user_id)
+        .first()
+    )
     if not user:
         raise HTTPException(404, "User not found")
     return user
 
 def get_current_structure(user: User = Depends(get_current_user)) -> str:
     return user.structure_id
+
+def has_perm(user: User, perm: str) -> bool:
+    # any role that has perm true
+    for r in (user.roles or []):
+        if r.permissions and r.permissions.get(perm, False):
+            return True
+    return False
+
+def require_perm(perm: str):
+    def _inner(user: User = Depends(get_current_user)):
+        if not has_perm(user, perm):
+            raise HTTPException(status_code=403, detail="Not allowed")
+        return user
+    return _inner

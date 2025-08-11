@@ -1,3 +1,4 @@
+# app/services/seed.py
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -18,10 +19,10 @@ from app.models.structure_settings import StructureSettings
 from app.models.trade import Trade
 from app.models.trade_line import TradeLine
 from app.models.user import User
+from app.models.role import Role
 from app.services.codegen import generate_unique_item_code
 
-
-# ---------- Static example data ----------
+# ---------- Constants ----------
 
 DEFAULT_STRUCTURE = "GPR"  # Golden Prosperity (your default guild/tenant)
 
@@ -50,8 +51,7 @@ EXAMPLE_LOCATIONS: list[dict] = [
     {"name": "Seabreeze Port", "type": "PORT", "description": "Maritime trade hub", "x": -50, "y": 63, "z": -300},
 ]
 
-# Price points per item (in "currency item" units)
-# These are example valuations and will be set for DEFAULT_STRUCTURE.
+# Example “now” price points (in currency item)
 VALUATIONS_NOW: dict[str, Decimal] = {
     "Iron Ingot": Decimal("1.00"),
     "Gold Ingot": Decimal("3.50"),
@@ -62,26 +62,106 @@ VALUATIONS_NOW: dict[str, Decimal] = {
     "Redstone": Decimal("0.30"),
     "Lapis Lazuli": Decimal("0.40"),
 }
-VALUATIONS_PAST_SHIFT = timedelta(days=7)  # a past price snapshot
+VALUATIONS_PAST_SHIFT = timedelta(days=7)
 
+# System roles and permissions (per structure)
+SYSTEM_ROLES = {
+    "ADMIN": {
+        "name": "Administrator",
+        "permissions": {
+            "users.admin": True,
+            "rbac.view": True,
+            "locations.manage": True,
+            "items.manage": True,
+            "valuations.manage": True,
+            "trades.view_all": True,
+        },
+        "is_system": True,
+    },
+    "GUILDMASTER": {
+        "name": "Guild Master",
+        "permissions": {
+            "rbac.view": True,
+            "locations.manage": True,
+            "trades.view_all": True,
+        },
+        "is_system": True,
+    },
+    "EMPLOYEE": {
+        "name": "Employee",
+        "permissions": {
+            "rbac.view": True,
+        },
+        "is_system": True,
+    },
+}
 
-# ---------- Helpers ----------
+# ---------- Role helpers (multi-role) ----------
 
-def _get_or_create_user(db: Session, username: str, role: str, structure_id: str, password_plain: str) -> User:
+def _ensure_roles(db: Session, structure_id: str) -> dict[str, Role]:
+    """
+    Ensure all system roles exist for the given structure; return by code.
+    """
+    out: dict[str, Role] = {}
+    for code, spec in SYSTEM_ROLES.items():
+        row = (
+            db.query(Role)
+            .filter(Role.structure_id == structure_id, Role.code == code)
+            .first()
+        )
+        if row is None:
+            row = Role(
+                structure_id=structure_id,
+                name=spec["name"],
+                code=code,
+                permissions=spec["permissions"],
+                is_system=spec["is_system"],
+            )
+            db.add(row)
+            db.flush()
+        out[code] = row
+    db.commit()
+    return out
+
+def _get_or_create_user_with_roles(
+    db: Session,
+    username: str,
+    role_codes: list[str],
+    structure_id: str,
+    password_plain: str,
+) -> User:
     u = db.query(User).filter(func.lower(User.username) == username.lower()).first()
+    roles = (
+        db.query(Role)
+        .filter(Role.structure_id == structure_id, Role.code.in_(role_codes))
+        .all()
+    )
+    if len(roles) != len(set(role_codes)):
+        missing = set(role_codes) - set(r.code for r in roles)
+        raise RuntimeError(f"Missing roles {missing} for structure {structure_id}")
+
     if u:
+        # ensure roles are assigned (idempotent upsert behavior)
+        existing_codes = set(r.code for r in u.roles or [])
+        new_roles = [r for r in roles if r.code not in existing_codes]
+        if new_roles:
+            u.roles.extend(new_roles)
+            db.commit()
+            db.refresh(u)
         return u
+
     u = User(
         username=username,
         hashed_password=hash_password(password_plain),
-        role=role,
         structure_id=structure_id,
     )
+    u.roles = roles
     db.add(u)
     db.commit()
     db.refresh(u)
     return u
 
+# ---------- Data helpers ----------
 
 def _ensure_categories(db: Session) -> None:
     for code, name in CATEGORIES:
@@ -89,11 +169,7 @@ def _ensure_categories(db: Session) -> None:
             db.add(ItemCategory(code=code, name=name))
     db.commit()
 
-
 def _ensure_items(db: Session, creator_user_id: int) -> dict[str, Item]:
-    """
-    Returns a mapping from item name to Item row (ensures they exist).
-    """
     out: dict[str, Item] = {}
     for name, cat, stack in CORE_ITEMS:
         exists = db.query(Item).filter(func.lower(Item.name) == name.lower()).first()
@@ -115,11 +191,7 @@ def _ensure_items(db: Session, creator_user_id: int) -> dict[str, Item]:
     db.commit()
     return out
 
-
 def _ensure_locations(db: Session, structure_id: str) -> dict[str, Location]:
-    """
-    Creates a small set of sample locations for a structure. Returns mapping by name.
-    """
     out: dict[str, Location] = {}
     for loc in EXAMPLE_LOCATIONS:
         name = loc["name"]
@@ -155,7 +227,6 @@ def _ensure_locations(db: Session, structure_id: str) -> dict[str, Location]:
     db.commit()
     return out
 
-
 def _ensure_structure_currency(db: Session, structure_id: str, currency_item: Item, updater_user_id: int | None) -> None:
     ss = db.query(StructureSettings).get(structure_id)
     if not ss:
@@ -166,21 +237,16 @@ def _ensure_structure_currency(db: Session, structure_id: str, currency_item: It
         ss.updated_by_user_id = updater_user_id
     db.commit()
 
-
 def _ensure_item_values(
     db: Session,
     structure_id: str,
     items_by_name: dict[str, Item],
     creator_user_id: int,
 ) -> None:
-    """
-    Seeds two snapshots of historical prices (past and now) for the known items.
-    """
     now = datetime.now(timezone.utc)
     past = now - VALUATIONS_PAST_SHIFT
 
     for point_time, valuations in [(past, VALUATIONS_NOW), (now, VALUATIONS_NOW)]:
-        # (using same numbers for simplicity; you can tweak if you want)
         for item_name, price in valuations.items():
             item = items_by_name.get(item_name)
             if not item:
@@ -207,14 +273,11 @@ def _ensure_item_values(
             )
     db.commit()
 
-
 def _ensure_guild_masters(db: Session, location: Location, user_ids: Iterable[int]) -> None:
-    # idempotent replace: clear then add
     db.query(LocationGuildMaster).filter_by(location_id=location.id).delete()
     for uid in user_ids:
         db.add(LocationGuildMaster(location_id=location.id, user_id=uid))
     db.commit()
-
 
 def _seed_example_trades(
     db: Session,
@@ -223,17 +286,12 @@ def _seed_example_trades(
     items_by_name: dict[str, Item],
     locs_by_name: dict[str, Location],
 ) -> None:
-    """
-    Creates a couple of example trades with multiple lines and valid from/to locations.
-    Skips if any trade already exists for the structure.
-    """
     any_trade = db.query(Trade.id).filter(Trade.structure_id == structure_id).first()
     if any_trade:
         return
 
     now = datetime.now(timezone.utc)
 
-    # Trade A: Mining delivery to town
     t1 = Trade(
         structure_id=structure_id,
         user_id=actor_user.id,
@@ -245,24 +303,19 @@ def _seed_example_trades(
     db.flush()
     db.add_all([
         TradeLine(
-            trade_id=t1.id,
-            item_id=items_by_name["Iron Ingot"].id,
-            direction="GAINED",
-            quantity=128,
+            trade_id=t1.id, item_id=items_by_name["Iron Ingot"].id,
+            direction="GAINED", quantity=128,
             from_location_id=locs_by_name["Mithril Mine"].id,
             to_location_id=locs_by_name["Golden Exchange"].id,
         ),
         TradeLine(
-            trade_id=t1.id,
-            item_id=items_by_name["Coal"].id,
-            direction="GAINED",
-            quantity=256,
+            trade_id=t1.id, item_id=items_by_name["Coal"].id,
+            direction="GAINED", quantity=256,
             from_location_id=locs_by_name["Mithril Mine"].id,
             to_location_id=locs_by_name["Golden Exchange"].id,
         ),
     ])
 
-    # Trade B: Purchase tools going to outpost; pay with gold (given)
     t2 = Trade(
         structure_id=structure_id,
         user_id=actor_user.id,
@@ -274,26 +327,20 @@ def _seed_example_trades(
     db.flush()
     db.add_all([
         TradeLine(
-            trade_id=t2.id,
-            item_id=items_by_name["Gold Ingot"].id,
-            direction="GIVEN",
-            quantity=10,
+            trade_id=t2.id, item_id=items_by_name["Gold Ingot"].id,
+            direction="GIVEN", quantity=10,
             from_location_id=locs_by_name["Golden Exchange"].id,
             to_location_id=locs_by_name["Northwatch Outpost"].id,
         ),
         TradeLine(
-            trade_id=t2.id,
-            item_id=items_by_name["Redstone"].id,
-            direction="GAINED",
-            quantity=64,
+            trade_id=t2.id, item_id=items_by_name["Redstone"].id,
+            direction="GAINED", quantity=64,
             from_location_id=locs_by_name["Golden Exchange"].id,
             to_location_id=locs_by_name["Northwatch Outpost"].id,
         ),
         TradeLine(
-            trade_id=t2.id,
-            item_id=items_by_name["Lapis Lazuli"].id,
-            direction="GAINED",
-            quantity=64,
+            trade_id=t2.id, item_id=items_by_name["Lapis Lazuli"].id,
+            direction="GAINED", quantity=64,
             from_location_id=locs_by_name["Golden Exchange"].id,
             to_location_id=locs_by_name["Northwatch Outpost"].id,
         ),
@@ -301,23 +348,19 @@ def _seed_example_trades(
 
     db.commit()
 
-
 # ---------- Public entrypoints ----------
 
 def seed_minimal(db: Session, admin_user_id: int | None = None) -> None:
     """
-    Kept for backward compatibility (categories + core items + default currency).
+    Minimal taxonomy + currency setup across existing structures.
     """
     _ensure_categories(db)
-    # if admin_user_id not provided, try to pick first admin or first user
+
+    # pick a creator (try admin, else any user)
     creator_id = admin_user_id
     if creator_id is None:
-        admin = db.query(User).filter(User.role == "ADMIN").first()
-        if admin:
-            creator_id = admin.id
-        else:
-            any_user = db.query(User).first()
-            creator_id = any_user.id if any_user else 1  # may fail if no user exists
+        any_user = db.query(User).first()
+        creator_id = any_user.id if any_user else 1
 
     _ensure_items(db, creator_id)
 
@@ -327,45 +370,48 @@ def seed_minimal(db: Session, admin_user_id: int | None = None) -> None:
 
     structs = [r[0] for r in db.query(User.structure_id).distinct().all()]
     for sid in structs:
+        _ensure_roles(db, sid)
         _ensure_structure_currency(db, sid, iron, creator_id)
-
 
 def seed_examples(db: Session) -> None:
     """
-    Full, idempotent seed for a useful demo environment:
-      - Users (admin/guildmaster/employee) in DEFAULT_STRUCTURE
-      - Categories, Items
-      - Locations (+ assign guild master)
+    Full, idempotent seed for a useful demo environment (multi-role):
+      - Roles per structure
+      - Users (admin, guild master, employee) with multi-role assignment
+      - Categories & items
+      - Locations (+ guild master assignment)
       - Structure currency
-      - Item valuations (past & now)
-      - A couple of example trades with multiple lines
+      - Historical valuations
+      - A couple of multi-line trades
     """
-    # 1) Users
-    admin = _get_or_create_user(db, "admin", "ADMIN", DEFAULT_STRUCTURE, "admin123")
-    gm = _get_or_create_user(db, "guildmaster", "GUILDMASTER", DEFAULT_STRUCTURE, "guild123")
-    emp = _get_or_create_user(db, "employee", "EMPLOYEE", DEFAULT_STRUCTURE, "emp123")
+    # Roles
+    roles = _ensure_roles(db, DEFAULT_STRUCTURE)
 
-    # 2) Taxonomy & Items
+    # Users (multi-role examples)
+    admin = _get_or_create_user_with_roles(db, "admin", ["ADMIN"], DEFAULT_STRUCTURE, "admin123")
+    gm    = _get_or_create_user_with_roles(db, "guildmaster", ["GUILDMASTER", "EMPLOYEE"], DEFAULT_STRUCTURE, "guild123")
+    emp   = _get_or_create_user_with_roles(db, "employee", ["EMPLOYEE"], DEFAULT_STRUCTURE, "emp123")
+
+    # Taxonomy & Items
     _ensure_categories(db)
     items_by_name = _ensure_items(db, creator_user_id=admin.id)
 
-    # 3) Locations
+    # Locations
     locs_by_name = _ensure_locations(db, structure_id=DEFAULT_STRUCTURE)
 
-    # 4) Structure currency (default = Iron Ingot)
+    # Structure currency (default = Iron Ingot)
     iron = items_by_name.get("Iron Ingot")
     if iron:
         _ensure_structure_currency(db, DEFAULT_STRUCTURE, iron, updater_user_id=admin.id)
 
-    # 5) Item valuations (historical)
+    # Historical valuations
     _ensure_item_values(db, DEFAULT_STRUCTURE, items_by_name, creator_user_id=admin.id)
 
-    # 6) Assign guild masters to locations
-    #    Example: GM is responsible for Golden Exchange and Outpost
+    # Guild master responsibilities
     if "Golden Exchange" in locs_by_name:
         _ensure_guild_masters(db, locs_by_name["Golden Exchange"], [gm.id])
     if "Northwatch Outpost" in locs_by_name:
         _ensure_guild_masters(db, locs_by_name["Northwatch Outpost"], [gm.id])
 
-    # 7) Example trades
+    # Example trades
     _seed_example_trades(db, DEFAULT_STRUCTURE, actor_user=emp, items_by_name=items_by_name, locs_by_name=locs_by_name)

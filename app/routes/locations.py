@@ -1,4 +1,3 @@
-# app/routes/locations.py
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -6,19 +5,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from slugify import slugify  # pip: python-slugify
 
-from app.services.deps import get_db, get_current_user, get_current_structure
+from app.services.deps import get_db, get_current_user, get_current_structure, require_perm
 from app.models.location import Location
 from app.models.location_guild_master import LocationGuildMaster
 from app.schemas.location import LocationCreate, LocationOut, GuildMasterAssign
-from app.models.user import User
 
 router = APIRouter(prefix="/locations", tags=["locations"])
 
-
-def ensure_can_manage_locations(u: User):
-    if u.role not in ("ADMIN", "GUILDMASTER"):
-        raise HTTPException(status_code=403, detail="Not allowed")
-
+manage_locs = require_perm("locations.manage")
 
 @router.get("", response_model=List[LocationOut])
 def list_locations(
@@ -31,17 +25,13 @@ def list_locations(
         q = q.filter(Location.is_active == True)  # noqa: E712
     return q.order_by(Location.name.asc()).all()
 
-
 @router.post("", response_model=LocationOut, status_code=status.HTTP_201_CREATED)
 def create_location(
     payload: LocationCreate,
     db: Session = Depends(get_db),
     structure_id: str = Depends(get_current_structure),
-    user: User = Depends(get_current_user),
+    user=Depends(manage_locs),
 ):
-    ensure_can_manage_locations(user)
-
-    # Enforce unique (structure_id, name)
     existing = (
         db.query(Location)
         .filter(Location.structure_id == structure_id, Location.name == payload.name)
@@ -50,7 +40,6 @@ def create_location(
     if existing:
         raise HTTPException(status_code=409, detail="Location name already exists")
 
-    # Generate a per-structure unique code
     base = slugify(payload.name)[:32] or "loc"
     code = base
     i = 1
@@ -65,17 +54,14 @@ def create_location(
     db.refresh(loc)
     return loc
 
-
 @router.post("/{location_id}/guildmasters", status_code=status.HTTP_204_NO_CONTENT)
 def set_guild_masters(
     location_id: int,
     body: GuildMasterAssign,
     db: Session = Depends(get_db),
     structure_id: str = Depends(get_current_structure),
-    user: User = Depends(get_current_user),
+    user=Depends(manage_locs),
 ):
-    ensure_can_manage_locations(user)
-
     loc = db.query(Location).filter_by(id=location_id, structure_id=structure_id).first()
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -84,9 +70,7 @@ def set_guild_masters(
     for uid in body.user_ids:
         db.add(LocationGuildMaster(location_id=location_id, user_id=uid))
     db.commit()
-    # 204 No Content
     return
-
 
 @router.get("/{location_id}/inventory")
 def get_location_inventory(

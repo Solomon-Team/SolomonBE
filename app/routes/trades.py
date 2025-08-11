@@ -7,40 +7,31 @@ from app.models.trade import Trade
 from app.models.trade_line import TradeLine
 from app.schemas.trade import TradeOut, TradeLineOut, TradeCreate
 from app.models.user import User
-from app.services.deps import get_db, get_current_user, get_current_structure
+from app.services.deps import get_db, get_current_user, get_current_structure, has_perm
 from app.services.valuation import get_item_value_at
 
 router = APIRouter(prefix="/trades", tags=["Trades"])
 
-
-def _compute_profit(db: Session, t: Trade) -> str | None:
-    """
-    Compute profit at the trade timestamp using historical valuations.
-    Profit = sum(value(item)*qty for GAINED) - sum(value(item)*qty for GIVEN)
-
-    Returns a stringified Decimal (for JSON-safe currency), or None if any line
-    is missing a valuation at that timestamp.
-    """
+def _compute_profit(db: Session, t: Trade) -> float | None:
     structure_id = t.structure_id
     ts = t.timestamp
 
     lines = db.query(TradeLine).filter_by(trade_id=t.id).all()
     if not lines:
-        return "0"
+        return 0.0
 
     total = Decimal("0")
     for l in lines:
-        v = get_item_value_at(db, structure_id, l.item_id, ts)  # Decimal | None
+        v = get_item_value_at(db, structure_id, l.item_id, ts)
         if v is None:
-            return None  # unpriced: missing valuation for at least one line
+            return None
         line_val = v * Decimal(l.quantity)
         if l.direction == "GAINED":
             total += line_val
-        else:  # "GIVEN"
+        else:
             total -= line_val
 
-    return str(total)
-
+    return float(total)
 
 def _build_trade_out(db: Session, t: Trade) -> TradeOut:
     lines = db.query(TradeLine).filter_by(trade_id=t.id).all()
@@ -62,8 +53,7 @@ def _build_trade_out(db: Session, t: Trade) -> TradeOut:
                 quantity=l.quantity,
                 from_location_id=l.from_location_id,
                 to_location_id=l.to_location_id,
-            )
-            for l in gained
+            ) for l in gained
         ],
         given=[
             TradeLineOut(
@@ -73,12 +63,10 @@ def _build_trade_out(db: Session, t: Trade) -> TradeOut:
                 quantity=l.quantity,
                 from_location_id=l.from_location_id,
                 to_location_id=l.to_location_id,
-            )
-            for l in given
+            ) for l in given
         ],
         profit=profit,
     )
-
 
 @router.post("", response_model=TradeOut)
 def create_trade(
@@ -96,15 +84,11 @@ def create_trade(
     )
     db.add(t)
     db.flush()
-
     for line in payload.lines:
-        # Pydantic v2: model_dump() returns dict with matching keys
         db.add(TradeLine(trade_id=t.id, **line.model_dump()))
-
     db.commit()
     db.refresh(t)
     return _build_trade_out(db, t)
-
 
 @router.get("", response_model=list[TradeOut])
 def list_trades(
@@ -112,8 +96,7 @@ def list_trades(
     current_user: User = Depends(get_current_user),
 ):
     q = db.query(Trade).filter(Trade.structure_id == current_user.structure_id)
-    if current_user.role != "ADMIN":
+    if not has_perm(current_user, "trades.view_all"):
         q = q.filter(Trade.user_id == current_user.id)
-
     trades = q.order_by(Trade.timestamp.desc()).all()
     return [_build_trade_out(db, t) for t in trades]

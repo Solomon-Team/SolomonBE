@@ -11,6 +11,8 @@ from app.models.trade import Trade
 from app.models.trade_line import TradeLine
 from app.models.location import Location
 from app.models.location_guild_master import LocationGuildMaster
+from app.models.role import Role  # <-- NEW
+
 
 __all__ = [
     "Base",
@@ -23,4 +25,6 @@ __all__ = [
     "TradeLine",
     "Location",
     "LocationGuildMaster",
+    "Role",  # <-- NEW
+
 ]
