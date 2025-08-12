@@ -1,7 +1,7 @@
 # app/routes/trades.py
 from decimal import Decimal
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.trade import Trade
 from app.models.trade_line import TradeLine
@@ -45,6 +45,8 @@ def _build_trade_out(db: Session, t: Trade) -> TradeOut:
         timestamp=t.timestamp,
         from_location_id=t.from_location_id,
         to_location_id=t.to_location_id,
+        user_id=t.user_id,
+        username=t.user.username if t.user else db.query(User.username).filter(User.id == t.user_id).scalar(),
         gained=[
             TradeLineOut(
                 id=l.id,
@@ -95,7 +97,7 @@ def list_trades(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    q = db.query(Trade).filter(Trade.structure_id == current_user.structure_id)
+    q = db.query(Trade).options(joinedload(Trade.user)).filter(Trade.structure_id == current_user.structure_id)
     if not has_perm(current_user, "trades.view_all"):
         q = q.filter(Trade.user_id == current_user.id)
     trades = q.order_by(Trade.timestamp.desc()).all()

@@ -27,9 +27,11 @@ class TradeOut(BaseModel):
     timestamp: datetime
     from_location_id: Optional[int]
     to_location_id: Optional[int]
+    user_id: int
+    username: str
     gained: List[TradeLineOut]
     given: List[TradeLineOut]
-    profit: Optional[str] = None
+    profit: Optional[float] = None
 
 class TradeItem(BaseModel):
     name: str
@@ -52,7 +54,7 @@ class TradeLogOut(BaseModel):
     actor_username: Optional[str] = ""
 
     # NEW:
-    profit: Optional[str] = None              # string per Decimal->JSON
+    profit: Optional[float] = None              # string per Decimal->JSON
     currency_item_name: Optional[str] = None  # es. "Iron Ingot"
     unpriced: bool = False                    # true se mancano valutazioni
 

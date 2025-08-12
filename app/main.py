@@ -8,9 +8,8 @@ from app.services.seed import seed_examples
 
 app = FastAPI()
 
-# Allow origins from env (comma-separated) with sensible defaults
-origins_env = os.getenv("CORS_ALLOW_ORIGINS", "")
-origins = [o.strip() for o in origins_env.split(",") if o.strip()] or [
+# Hardcoded allowed origins
+origins = [
     "https://bookkeeperfe.onrender.com",  # Render frontend
     "http://localhost:5173",              # Vite dev
     "http://localhost:3000",              # alt dev ports
