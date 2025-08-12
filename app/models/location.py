@@ -4,6 +4,9 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 LocationType = ("TOWN", "OUTPOST", "MINE", "PORT", "OTHER")
+ExternalKind = ("IMPORT", "EXPORT")  # NEW
+
+
 
 class Location(Base):
     __tablename__ = "locations"
@@ -20,5 +23,8 @@ class Location(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)   # <—
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)  # <—
+
+    is_external = Column(Boolean, nullable=False, default=False)
+    external_kind = Column(Enum(*ExternalKind, name="external_kind"), nullable=True)
 
     guild_masters = relationship("LocationGuildMaster", back_populates="location", cascade="all, delete-orphan")

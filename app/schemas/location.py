@@ -2,6 +2,8 @@ from pydantic import BaseModel
 from typing import Optional, List, Literal
 
 LocationType = Literal["TOWN","OUTPOST","MINE","PORT","OTHER"]
+ExternalKind = Literal["IMPORT","EXPORT"]  # NEW
+
 
 class LocationCreate(BaseModel):
     name: str
@@ -23,6 +25,8 @@ class LocationOut(BaseModel):
     y: Optional[int]
     z: Optional[int]
     is_active: bool
+    is_external: bool
+    external_kind: Optional[ExternalKind]
     class Config: from_attributes = True
 
 class GuildMasterAssign(BaseModel):

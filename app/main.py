@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from app.core.database import SessionLocal
-from app.routes import auth, trades, users, items, item_values, structure_settings, locations, roles, rbac
+from app.routes import auth, trades, users, items, item_values, structure_settings, locations, roles, rbac, inventory
 from app.services.seed import seed_examples
+
 
 app = FastAPI()
 
@@ -33,6 +34,8 @@ app.include_router(users.router)
 app.include_router(locations.router)
 app.include_router(roles.router)
 app.include_router(rbac.router)
+app.include_router(inventory.router)
+
 
 
 

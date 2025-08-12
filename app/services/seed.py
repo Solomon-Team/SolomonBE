@@ -279,6 +279,47 @@ def _ensure_guild_masters(db: Session, location: Location, user_ids: Iterable[in
         db.add(LocationGuildMaster(location_id=location.id, user_id=uid))
     db.commit()
 
+def _ensure_external_locations(db: Session, structure_id: str) -> dict[str, Location]:
+    out: dict[str, Location] = {}
+
+    def upsert(name: str, kind: str):
+        row = (
+            db.query(Location)
+            .filter(
+                Location.structure_id == structure_id,
+                Location.is_external == True,        # noqa: E712
+                Location.external_kind == kind,
+            ).first()
+        )
+        if row:
+            out[name] = row
+            return
+
+        base_code = name.lower()[:32] or "loc"
+        code = base_code
+        i = 1
+        while db.query(Location).filter_by(structure_id=structure_id, code=code).first():
+            code = f"{base_code[:29]}-{i}"; i += 1
+
+        row = Location(
+            structure_id=structure_id,
+            name=name,
+            code=code,
+            type="OTHER",
+            description=f"{name} (external world)",
+            is_active=True,
+            is_external=True,
+            external_kind=kind,
+        )
+        db.add(row); db.flush()
+        out[name] = row
+
+    upsert("Import", "IMPORT")
+    upsert("Export", "EXPORT")
+    db.commit()
+    return out
+
+
 def _seed_example_trades(
     db: Session,
     structure_id: str,
@@ -398,6 +439,10 @@ def seed_examples(db: Session) -> None:
 
     # Locations
     locs_by_name = _ensure_locations(db, structure_id=DEFAULT_STRUCTURE)
+
+    locs_by_name = _ensure_locations(db, structure_id=DEFAULT_STRUCTURE)
+    ext_locs = _ensure_external_locations(db, structure_id=DEFAULT_STRUCTURE)
+    locs_by_name.update(ext_locs)
 
     # Structure currency (default = Iron Ingot)
     iron = items_by_name.get("Iron Ingot")
