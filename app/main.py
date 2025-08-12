@@ -6,6 +6,15 @@ from app.core.database import SessionLocal
 from app.routes import auth, trades, users, items, item_values, structure_settings, locations, roles, rbac
 from app.services.seed import seed_examples
 
+def run_migrations():
+    from alembic import command
+    from alembic.config import Config
+    import os, pathlib
+    alembic_cfg = Config(str(pathlib.Path(__file__).resolve().parent.parent / "alembic.ini"))
+    # If you prefer to force env var at runtime:
+    alembic_cfg.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+    command.upgrade(alembic_cfg, "head")
+
 app = FastAPI()
 
 # Hardcoded allowed origins
@@ -39,7 +48,7 @@ app.include_router(rbac.router)
 
 @app.on_event("startup")
 def on_startup():
-    # Idempotent full seed for a rich demo dataset
+    run_migrations()
     db = SessionLocal()
     try:
         seed_examples(db)
