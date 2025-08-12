@@ -1,19 +1,26 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
-from sqlalchemy.orm import relationship
 from datetime import datetime
+
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
+
 from app.core.database import Base
+
 
 class Trade(Base):
     __tablename__ = "trades"
-
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    structure_id = Column(String(50), nullable=False)
-
-    items_given = Column(Text, nullable=False)
-    items_gained = Column(Text, nullable=False)
-    from_location = Column(String, nullable=False)
-    to_location = Column(String, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
+    structure_id = Column(String(50), nullable=False, index=True)
+    from_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    to_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     user = relationship("User", back_populates="trades")
+    lines = relationship(
+        "TradeLine",
+        back_populates="trade",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<Trade id={self.id} structure={self.structure_id} user={self.user_id} ts={self.timestamp}>"
