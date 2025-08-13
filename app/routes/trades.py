@@ -1,6 +1,5 @@
 # app/routes/trades.py
 from decimal import Decimal
-from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.trade import Trade
@@ -9,6 +8,8 @@ from app.schemas.trade import TradeOut, TradeLineOut, TradeCreate
 from app.models.user import User
 from app.services.deps import get_db, get_current_user, get_current_structure, has_perm
 from app.services.valuation import get_item_value_at
+from fastapi import APIRouter, Depends, Response, status
+
 
 router = APIRouter(prefix="/trades", tags=["Trades"])
 
@@ -102,3 +103,46 @@ def list_trades(
         q = q.filter(Trade.user_id == current_user.id)
     trades = q.order_by(Trade.timestamp.desc()).all()
     return [_build_trade_out(db, t) for t in trades]
+
+@router.delete("/trade-lines/{line_id}")
+def delete_trade_line(
+    line_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    response: Response = None,
+):
+    # Admin only
+    if not has_perm(user, "users.admin"):
+        if response is not None:
+            response.status_code = status.HTTP_403_FORBIDDEN
+        return {"error": "forbidden"}
+
+    # Load line
+    tl: TradeLine | None = db.get(TradeLine, line_id)
+    if not tl:
+        if response is not None:
+            response.status_code = status.HTTP_404_NOT_FOUND
+        return {"error": "trade line not found"}
+
+    # Tenant guard via parent trade
+    tr: Trade | None = db.get(Trade, tl.trade_id)
+    if not tr or tr.structure_id != user.structure_id:
+        if response is not None:
+            response.status_code = status.HTTP_404_NOT_FOUND
+        return {"error": "trade line not found"}  # hide cross-tenant
+
+    trade_id = tr.id
+
+    # Delete the line
+    db.delete(tl)
+    db.flush()
+
+    # If no lines remain, delete the trade too
+    remaining = db.query(TradeLine.id).filter(TradeLine.trade_id == trade_id).count()
+    deleted_trade = False
+    if remaining == 0:
+        db.delete(tr)
+        deleted_trade = True
+
+    db.commit()
+    return {"deleted_line_id": line_id, "trade_id": trade_id, "deleted_trade": deleted_trade}
