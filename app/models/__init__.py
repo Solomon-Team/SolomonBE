@@ -11,7 +11,10 @@ from app.models.trade import Trade
 from app.models.trade_line import TradeLine
 from app.models.location import Location
 from app.models.location_guild_master import LocationGuildMaster
-from app.models.role import Role  # <-- NEW
+from app.models.role import Role
+from .movement_reason import MovementReason            # NEW
+from .inventory import PlayerInventory, PlayerInventoryLedger  # NEW
+from .user_profile import UserProfile                  # NEW
 
 
 __all__ = [
@@ -25,6 +28,10 @@ __all__ = [
     "TradeLine",
     "Location",
     "LocationGuildMaster",
-    "Role",  # <-- NEW
+    "Role",
+    "MovementReason",
+    "PlayerInventory",
+    "PlayerInventoryLedger",
+    "UserProfile"
 
 ]

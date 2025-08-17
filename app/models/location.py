@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Enum, Index, and_
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -28,3 +28,18 @@ class Location(Base):
     external_kind = Column(Enum(*ExternalKind, name="external_kind"), nullable=True)
 
     guild_masters = relationship("LocationGuildMaster", back_populates="location", cascade="all, delete-orphan")
+
+
+Index(
+    "uq_locations_import_per_structure",
+    Location.structure_id,
+    unique=True,
+    postgresql_where=and_(Location.is_external.is_(True), Location.external_kind == "IMPORT"),
+)
+
+Index(
+    "uq_locations_export_per_structure",
+    Location.structure_id,
+    unique=True,
+    postgresql_where=and_(Location.is_external.is_(True), Location.external_kind == "EXPORT"),
+)

@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from app.core.database import SessionLocal
-from app.routes import auth, trades, users, items, item_values, structure_settings, locations, roles, rbac, inventory
+from app.routes import auth, trades, users, items, item_values, structure_settings, locations, roles, rbac, inventory, \
+    movement_reasons, item_icons, player_inventory, user_profiles
 from app.services.seed import seed_examples
 
 
@@ -35,6 +36,10 @@ app.include_router(locations.router)
 app.include_router(roles.router)
 app.include_router(rbac.router)
 app.include_router(inventory.router)
+app.include_router(movement_reasons.router)
+app.include_router(item_icons.router)
+app.include_router(user_profiles.router)
+app.include_router(player_inventory.router)
 
 
 

@@ -1,8 +1,8 @@
-"""Initial schema
+"""initial schema v2
 
-Revision ID: e8e285360a1f
+Revision ID: 4858abe36ba9
 Revises: 
-Create Date: 2025-08-11 12:46:16.796121
+Create Date: 2025-08-17 18:04:57.651123
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'e8e285360a1f'
+revision: str = '4858abe36ba9'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -42,8 +42,22 @@ def upgrade() -> None:
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('is_external', sa.Boolean(), nullable=False),
+    sa.Column('external_kind', sa.Enum('IMPORT', 'EXPORT', name='external_kind'), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index('uq_locations_export_per_structure', 'locations', ['structure_id'], unique=True, postgresql_where=sa.text("is_external IS true AND external_kind = 'EXPORT'"))
+    op.create_index('uq_locations_import_per_structure', 'locations', ['structure_id'], unique=True, postgresql_where=sa.text("is_external IS true AND external_kind = 'IMPORT'"))
+    op.create_table('movement_reasons',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('structure_id', sa.String(length=16), nullable=False),
+    sa.Column('code', sa.String(length=48), nullable=False),
+    sa.Column('name', sa.String(length=128), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('structure_id', 'code', name='uq_movement_reason_struct_code')
+    )
+    op.create_index('ix_movement_reasons_struct_active', 'movement_reasons', ['structure_id', 'is_active'], unique=False)
     op.create_table('roles',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('structure_id', sa.String(length=50), nullable=False),
@@ -75,6 +89,9 @@ def upgrade() -> None:
     sa.Column('created_by_user_id', sa.Integer(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('icon_image', sa.LargeBinary(), nullable=True),
+    sa.Column('icon_mime_type', sa.String(length=64), nullable=True),
+    sa.Column('icon_updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['created_by_user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('code')
@@ -102,6 +119,15 @@ def upgrade() -> None:
     op.create_index(op.f('ix_trades_id'), 'trades', ['id'], unique=False)
     op.create_index(op.f('ix_trades_structure_id'), 'trades', ['structure_id'], unique=False)
     op.create_index(op.f('ix_trades_timestamp'), 'trades', ['timestamp'], unique=False)
+    op.create_table('user_profiles',
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('discord_username', sa.String(length=64), nullable=True),
+    sa.Column('minecraft_username', sa.String(length=64), nullable=True),
+    sa.Column('notes', sa.String(length=1024), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('user_id')
+    )
     op.create_table('user_roles',
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('role_id', sa.Integer(), nullable=False),
@@ -123,6 +149,17 @@ def upgrade() -> None:
     sa.UniqueConstraint('structure_id', 'item_id', 'effective_from', name='uq_item_values_hist')
     )
     op.create_index('ix_item_values_lookup', 'item_values', ['structure_id', 'item_id', 'effective_from'], unique=False)
+    op.create_table('player_inventory',
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('item_id', sa.Integer(), nullable=False),
+    sa.Column('structure_id', sa.String(length=16), nullable=False),
+    sa.Column('quantity', sa.BigInteger(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.ForeignKeyConstraint(['item_id'], ['items.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('user_id', 'item_id', 'structure_id', name='pk_player_inventory')
+    )
+    op.create_index('ix_player_inventory_user_item', 'player_inventory', ['user_id', 'item_id'], unique=False)
     op.create_table('structure_settings',
     sa.Column('structure_id', sa.String(length=50), nullable=False),
     sa.Column('currency_item_id', sa.Integer(), nullable=True),
@@ -136,27 +173,65 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('trade_id', sa.Integer(), nullable=False),
     sa.Column('item_id', sa.Integer(), nullable=False),
-    sa.Column('direction', sa.Enum('GAINED', 'GIVEN', name='linedirection'), nullable=False),
-    sa.Column('quantity', sa.Integer(), nullable=False),
+    sa.Column('direction', sa.String(length=24), nullable=False),
+    sa.Column('quantity', sa.BigInteger(), nullable=False),
     sa.Column('from_location_id', sa.Integer(), nullable=True),
     sa.Column('to_location_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['from_location_id'], ['locations.id'], ),
-    sa.ForeignKeyConstraint(['item_id'], ['items.id'], ),
-    sa.ForeignKeyConstraint(['to_location_id'], ['locations.id'], ),
+    sa.Column('from_user_id', sa.Integer(), nullable=True),
+    sa.Column('to_user_id', sa.Integer(), nullable=True),
+    sa.Column('movement_reason_code', sa.String(length=48), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.CheckConstraint('(from_user_id IS NULL) <> (from_location_id IS NULL)', name='ck_trade_lines_from_party_xor'),
+    sa.CheckConstraint('(to_user_id IS NULL) <> (to_location_id IS NULL)', name='ck_trade_lines_to_party_xor'),
+    sa.ForeignKeyConstraint(['from_location_id'], ['locations.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['from_user_id'], ['users.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['item_id'], ['items.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['to_location_id'], ['locations.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['to_user_id'], ['users.id'], ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['trade_id'], ['trades.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_trade_lines_id'), 'trade_lines', ['id'], unique=False)
+    op.create_index('ix_trade_lines_item_trade', 'trade_lines', ['trade_id', 'item_id'], unique=False)
+    op.create_index('ix_trade_lines_reason_code', 'trade_lines', ['movement_reason_code'], unique=False)
+    op.create_table('player_inventory_ledger',
+    sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('item_id', sa.Integer(), nullable=False),
+    sa.Column('structure_id', sa.String(length=16), nullable=False),
+    sa.Column('delta_qty', sa.BigInteger(), nullable=False),
+    sa.Column('trade_id', sa.Integer(), nullable=False),
+    sa.Column('trade_line_id', sa.Integer(), nullable=False),
+    sa.Column('movement_reason_code', sa.String(length=48), nullable=True),
+    sa.Column('timestamp', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['item_id'], ['items.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['trade_id'], ['trades.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['trade_line_id'], ['trade_lines.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_pil_struct_time', 'player_inventory_ledger', ['structure_id', 'timestamp'], unique=False)
+    op.create_index('ix_pil_user_item_time', 'player_inventory_ledger', ['user_id', 'item_id', 'timestamp'], unique=False)
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index('ix_pil_user_item_time', table_name='player_inventory_ledger')
+    op.drop_index('ix_pil_struct_time', table_name='player_inventory_ledger')
+    op.drop_table('player_inventory_ledger')
+    op.drop_index('ix_trade_lines_reason_code', table_name='trade_lines')
+    op.drop_index('ix_trade_lines_item_trade', table_name='trade_lines')
+    op.drop_index(op.f('ix_trade_lines_id'), table_name='trade_lines')
     op.drop_table('trade_lines')
     op.drop_table('structure_settings')
+    op.drop_index('ix_player_inventory_user_item', table_name='player_inventory')
+    op.drop_table('player_inventory')
     op.drop_index('ix_item_values_lookup', table_name='item_values')
     op.drop_table('item_values')
     op.drop_table('user_roles')
+    op.drop_table('user_profiles')
     op.drop_index(op.f('ix_trades_timestamp'), table_name='trades')
     op.drop_index(op.f('ix_trades_structure_id'), table_name='trades')
     op.drop_index(op.f('ix_trades_id'), table_name='trades')
@@ -167,6 +242,10 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_users_id'), table_name='users')
     op.drop_table('users')
     op.drop_table('roles')
+    op.drop_index('ix_movement_reasons_struct_active', table_name='movement_reasons')
+    op.drop_table('movement_reasons')
+    op.drop_index('uq_locations_import_per_structure', table_name='locations', postgresql_where=sa.text("is_external IS true AND external_kind = 'IMPORT'"))
+    op.drop_index('uq_locations_export_per_structure', table_name='locations', postgresql_where=sa.text("is_external IS true AND external_kind = 'EXPORT'"))
     op.drop_table('locations')
     op.drop_table('item_categories')
     # ### end Alembic commands ###

@@ -7,6 +7,7 @@ from app.models.trade_line import TradeLine
 from app.schemas.trade import TradeOut, TradeLineOut, TradeCreate
 from app.models.user import User
 from app.services.deps import get_db, get_current_user, get_current_structure, has_perm
+from app.services.trade_hooks import apply_user_ledgers_and_inventory
 from app.services.valuation import get_item_value_at
 from fastapi import APIRouter, Depends, Response, status
 
@@ -91,6 +92,7 @@ def create_trade(
         db.add(TradeLine(trade_id=t.id, **line.model_dump()))
     db.commit()
     db.refresh(t)
+    apply_user_ledgers_and_inventory(db, t)
     return _build_trade_out(db, t)
 
 @router.get("", response_model=list[TradeOut])
