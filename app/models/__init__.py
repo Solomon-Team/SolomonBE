@@ -15,7 +15,7 @@ from app.models.role import Role
 from .movement_reason import MovementReason            # NEW
 from .inventory import PlayerInventory, PlayerInventoryLedger  # NEW
 from .user_profile import UserProfile                  # NEW
-
+from .mc import MCLivePlayer, MCPlayerInventorySnapshot, MCContainerSnapshot, MCIngestToken, MCPositionHistory
 
 __all__ = [
     "Base",
@@ -32,6 +32,10 @@ __all__ = [
     "MovementReason",
     "PlayerInventory",
     "PlayerInventoryLedger",
-    "UserProfile"
-
+    "UserProfile",
+    "MCIngestToken",
+    "MCPositionHistory",
+    "MCLivePlayer",
+    "MCContainerSnapshot",
+    "MCPlayerInventorySnapshot"
 ]
