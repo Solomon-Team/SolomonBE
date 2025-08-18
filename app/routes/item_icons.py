@@ -21,7 +21,7 @@ async def upload_item_icon(
     item_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
