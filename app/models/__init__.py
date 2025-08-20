@@ -16,6 +16,9 @@ from .movement_reason import MovementReason            # NEW
 from .inventory import PlayerInventory, PlayerInventoryLedger  # NEW
 from .user_profile import UserProfile                  # NEW
 from .mc import MCLivePlayer, MCPlayerInventorySnapshot, MCContainerSnapshot, MCIngestToken, MCPositionHistory
+from app.models.party import Party, PartyMember
+from app.models.message import Message, MessageTarget, MessageRecipientStatus
+
 
 __all__ = [
     "Base",
@@ -37,5 +40,10 @@ __all__ = [
     "MCPositionHistory",
     "MCLivePlayer",
     "MCContainerSnapshot",
-    "MCPlayerInventorySnapshot"
+    "MCPlayerInventorySnapshot",
+    "Party",
+    "PartyMember",
+    "Message",
+    "MessageTarget",
+    "MessageRecipientStatus",
 ]
