@@ -1,5 +1,5 @@
 # app/schemas/message.py
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -34,9 +34,11 @@ class MCMessage(BaseModel):
     id: int
     text: str
     kind: str
-    meta: Dict[str, Any] = Field(default_factory=dict)
+    meta: Dict = {}
     expires_at: Optional[datetime] = None
-    priority: str = "NORMAL"
+    priority: str
+    created_at: datetime
+    position: Literal["TOP","LEFT","RIGHT","BOTTOM"]
 
 class MCAckIn(BaseModel):
     delivered: List[int] = Field(default_factory=list)

@@ -1,11 +1,12 @@
 # app/routes/mc_messages.py
 from __future__ import annotations
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Dict
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
+from app.services import mc_policy
 from app.services.deps import get_db, get_current_user
 from app.models.user import User
 from app.models.message import Message, MessageRecipientStatus
@@ -18,9 +19,13 @@ def pull_messages(db: Session = Depends(get_db), current_user: User = Depends(ge
     now = datetime.now(timezone.utc)
     rows = (
         db.query(Message)
-        .join(MessageRecipientStatus,
-              and_(MessageRecipientStatus.message_id == Message.id,
-                   MessageRecipientStatus.user_id == current_user.id))
+        .join(
+            MessageRecipientStatus,
+            and_(
+                MessageRecipientStatus.message_id == Message.id,
+                MessageRecipientStatus.user_id == current_user.id,
+            ),
+        )
         .filter(
             Message.structure_id == current_user.structure_id,
             MessageRecipientStatus.status.in_(["QUEUED", "FAILED"]),
@@ -31,8 +36,24 @@ def pull_messages(db: Session = Depends(get_db), current_user: User = Depends(ge
         .limit(100)
         .all()
     )
+
+    # Resolve positions in batch (by kind) for this structure
+    kinds: List[str] = list({r.kind for r in rows})
+    kind_to_pos: Dict[str, str] = {}
+    for k in kinds:
+        kind_to_pos[k] = mc_policy.get_position(db, current_user.structure_id, k)
+
     return [
-        MCMessage(id=r.id, text=r.text, kind=r.kind, meta=r.meta or {}, expires_at=r.expires_at, priority=r.priority)
+        MCMessage(
+            id=r.id,
+            text=r.text,
+            kind=r.kind,
+            meta=r.meta or {},
+            expires_at=r.expires_at,
+            priority=r.priority,
+            created_at=r.created_at,
+            position=kind_to_pos.get(r.kind, "LEFT"),
+        )
         for r in rows
     ]
 

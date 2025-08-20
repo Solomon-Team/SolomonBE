@@ -18,7 +18,7 @@ from .user_profile import UserProfile                  # NEW
 from .mc import MCLivePlayer, MCPlayerInventorySnapshot, MCContainerSnapshot, MCIngestToken, MCPositionHistory
 from app.models.party import Party, PartyMember
 from app.models.message import Message, MessageTarget, MessageRecipientStatus
-
+from app.models.message_position_policy import MessagePositionPolicy
 
 __all__ = [
     "Base",
@@ -46,4 +46,5 @@ __all__ = [
     "Message",
     "MessageTarget",
     "MessageRecipientStatus",
+    "MessagePositionPolicy"
 ]

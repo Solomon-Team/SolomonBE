@@ -39,5 +39,4 @@ class PartyMeOut(BaseModel):
     leader_minecraft_username: Optional[str] = None
     members: List[PartyMemberView] = []
 
-    class Config:
-        orm_mode = True
+
