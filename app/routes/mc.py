@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
 from datetime import datetime, timezone
 
-from app.services.deps import get_db, require_perm
+from app.models import UserProfile
+from app.services.deps import get_db, require_perm, get_current_user
 from app.schemas.mc import (
     MCEventIn, MCEventBatchIn, MCPlayerSnapshotOut, MCUuidsOut, MCUuidDetailOut, MCItemsOut
 )
@@ -149,3 +150,31 @@ def items_dump(
         for r in chest_rows
     }
     return {"players": players, "chests": chests}
+
+@router.post("/events/jwt")
+def ingest_event_jwt(
+    payload: MCEventIn,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),  # any authenticated user
+):
+    # derive scope from JWT
+    structure_id = current_user.structure_id
+    # display name preference: profile.minecraft_username if present
+    prof = db.execute(select(UserProfile).where(UserProfile.user_id == current_user.id)).scalar_one_or_none()
+    preferred_name = (prof.minecraft_username if prof and getattr(prof, "minecraft_username", None) else None)
+
+    e = payload.normalized()
+    # force link to this user, override display username if we have one
+    upsert_live_player(
+        db,
+        structure_id,
+        e,
+        link_user=False,
+        force_user_id=current_user.id,
+        display_username_override=preferred_name
+    )
+    insert_history_throttled(db, structure_id, e)
+    upsert_player_inventory_snapshot(db, structure_id, e)
+    upsert_container_snapshot(db, structure_id, e)
+    db.commit()
+    return {"status": "ok"}

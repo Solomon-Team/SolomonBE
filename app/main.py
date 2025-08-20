@@ -4,7 +4,7 @@ import os
 
 from app.core.database import SessionLocal
 from app.routes import auth, trades, users, items, item_values, structure_settings, locations, roles, rbac, inventory, \
-    movement_reasons, item_icons, player_inventory, user_profiles, mc
+    movement_reasons, item_icons, player_inventory, user_profiles, mc, auth_mc
 from app.services.seed import seed_examples
 
 
@@ -41,6 +41,8 @@ app.include_router(item_icons.router)
 app.include_router(user_profiles.router)
 app.include_router(player_inventory.router)
 app.include_router(mc.router)
+app.include_router(auth_mc.router)
+
 
 
 

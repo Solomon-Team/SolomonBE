@@ -66,13 +66,31 @@ def resolve_user_link(db: Session, structure_id: str, uuid: str, username: str) 
 
     return None
 
-def upsert_live_player(db: Session, structure_id: str, e: MCEventNorm, link_user: bool = True) -> int | None:
-    user_id = resolve_user_link(db, structure_id, e.uuid, e.username) if link_user else None
+def upsert_live_player(
+    db: Session,
+    structure_id: str,
+    e: MCEventNorm,
+    link_user: bool = True,
+    force_user_id: int | None = None,
+    display_username_override: Optional[str] = None,
+) -> int | None:
+    """
+    Upsert the latest snapshot. If force_user_id is provided, that wins.
+    display_username_override, if provided, is stored in username column for display.
+    """
+    # decide user_id
+    if force_user_id is not None:
+        user_id = force_user_id
+    else:
+        user_id = resolve_user_link(db, structure_id, e.uuid, e.username) if link_user else None
+
+    # decide display username
+    disp_name = (display_username_override or e.username or "").strip()
 
     insert_stmt = pg_insert(MCLivePlayer).values(
         structure_id=structure_id,
         uuid=e.uuid,
-        username=e.username,
+        username=disp_name,
         x=e.x, y=e.y, z=e.z,
         last_seen_at=e.ts,
         hp_json=e.hp,
@@ -82,7 +100,7 @@ def upsert_live_player(db: Session, structure_id: str, e: MCEventNorm, link_user
     update_stmt = insert_stmt.on_conflict_do_update(
         index_elements=["structure_id", "uuid"],
         set_={
-            "username": e.username,
+            "username": disp_name,
             "x": e.x, "y": e.y, "z": e.z,
             "last_seen_at": e.ts,
             "hp_json": func.coalesce(insert_stmt.excluded.hp_json, MCLivePlayer.hp_json),
