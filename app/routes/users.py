@@ -60,7 +60,6 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db),
 
 @router.get("", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db),
-               current_user: User = Depends(admin_guard),
                structure_id: str = Depends(get_current_structure)):
     users = (
         db.query(User)

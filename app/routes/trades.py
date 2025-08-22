@@ -1,5 +1,7 @@
 # app/routes/trades.py
 from decimal import Decimal
+
+from sqlalchemy import exists, and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 from fastapi import APIRouter, Depends, Response, status, HTTPException
@@ -215,9 +217,20 @@ def list_trades(
     q = db.query(Trade).options(joinedload(Trade.user)).filter(
         Trade.structure_id == current_user.structure_id
     )
-    if not has_perm(current_user, "trades.view_all"):
-        q = q.filter(Trade.user_id == current_user.id)
+    can_view_all = has_perm(current_user, "trades.view_all")
 
+    if not can_view_all:
+      # new behavior: trades I created OR trades where any line has me as from/to user
+        q = q.filter(or_(
+            Trade.user_id == current_user.id,
+            exists().where(and_(
+                TradeLine.trade_id == Trade.id,
+                or_(
+                    TradeLine.from_user_id == current_user.id,
+                    TradeLine.to_user_id == current_user.id,
+                    ),
+            )),
+        ))
     trades = q.order_by(Trade.timestamp.desc()).all()
     return [_build_trade_out(db, t) for t in trades]
 
