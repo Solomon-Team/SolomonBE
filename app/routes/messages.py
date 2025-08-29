@@ -11,12 +11,57 @@ from app.services.deps import get_db, require_perm, get_current_user
 from app.models.user import User
 from app.models.party import Party, PartyMember
 from app.models.message import Message, MessageTarget, MessageRecipientStatus
-from app.schemas.message import MessageCreate, MessageCreatedOut, MessageOutboxRow
+from app.schemas.message import MessageCreate, MessageCreatedOut, MessageOutboxRow, PartyMessageCreate
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
 send_perm = require_perm("users.admin")
 view_perm  = require_perm("users.admin")
+
+@router.post("/broadcast", response_model=MessageCreatedOut, status_code=201)
+def broadcast_to_structure(
+    payload: PartyMessageCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(send_perm),   # admin-only, reuse same gate as /outbox
+):
+    """
+    Broadcast a message to ALL users in the caller's structure.
+    Admin-only. Reuses the same queue mechanism as /messages/outbox.
+    """
+    # Create the message header (identical to /outbox, minus explicit targets)
+    msg = Message(
+        structure_id=user.structure_id,
+        text=payload.text,
+        kind=payload.kind,
+        meta=payload.meta or None,
+        deliver_after=payload.deliver_after,
+        expires_at=payload.expires_at,
+        requires_ack=payload.requires_ack,
+        priority=payload.priority,
+        created_by_user_id=user.id,
+    )
+    db.add(msg)
+    db.flush()  # get msg.id
+
+    # Resolve recipients: every user in the same structure (including the sender)
+    recipient_ids = [r.id for r in db.query(User.id).filter(User.structure_id == user.structure_id).all()]
+    unique_ids = set(recipient_ids)
+
+    # For each recipient: add a MessageTarget (user) and queue delivery status
+    for uid in unique_ids:
+        # targets (nice to have; keeps parity with /outbox per-user targeting)
+        db.add(MessageTarget(message_id=msg.id, user_id=uid))
+        # queue
+        exists = db.query(MessageRecipientStatus).filter(
+            MessageRecipientStatus.message_id == msg.id,
+            MessageRecipientStatus.user_id == uid,
+        ).first()
+        if not exists:
+            db.add(MessageRecipientStatus(message_id=msg.id, user_id=uid, status="QUEUED"))
+
+    db.commit()
+    return {"message_id": msg.id, "recipients": len(unique_ids)}
+
 
 @router.post("/outbox", response_model=MessageCreatedOut, status_code=201)
 def send_message(payload: MessageCreate, db: Session = Depends(get_db), user: User = Depends(send_perm)):
