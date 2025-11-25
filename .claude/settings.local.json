@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(.gradlew.bat build)",
+      "Bash(cmd /c \"cd /d C:\\Users\\mifan\\Documents\\GitHub\\MinecraftMods\\InventoryNetwork\\InventoryNetwork && gradlew.bat build\")",
+      "Bash(./gradlew build:*)",
+      "Bash(./gradlew:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(.venvScriptspython.exe -m alembic revision --autogenerate -m \"simplify_user_model_use_username_only\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

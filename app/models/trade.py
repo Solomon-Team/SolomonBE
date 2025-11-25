@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
@@ -13,7 +13,7 @@ class Trade(Base):
     structure_id = Column(String(50), nullable=False, index=True)
     from_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     to_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     user = relationship("User", back_populates="trades")
     lines = relationship(
         "TradeLine",

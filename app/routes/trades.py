@@ -66,17 +66,27 @@ def _build_trade_out(db: Session, t: Trade) -> TradeOut:
 
     profit = _compute_profit(db, t)
 
+    if t.user is not None:
+        username = t.user.username
+    elif hasattr(t, "_username_cache"):
+        username = t._username_cache
+    else:
+        # Fallback: load the user instance then use the property
+        u = db.query(User).filter(User.id == t.user_id).first()
+        username = u.username if u is not None else ""
+
     return TradeOut(
         id=t.id,
         timestamp=t.timestamp,
         from_location_id=t.from_location_id,
         to_location_id=t.to_location_id,
         user_id=t.user_id,
-        username=t.user.username if t.user else db.query(User.username).filter(User.id == t.user_id).scalar(),
+        username=username,
         gained=[_line_to_schema(l) for l in gained],
         given=[_line_to_schema(l) for l in given],
         profit=profit,
     )
+
 
 
 @router.post("", response_model=TradeOut)
@@ -242,34 +252,38 @@ def delete_trade_line(
     user: User = Depends(get_current_user),
     response: Response = None,
 ):
-    # Admin only
-    if not has_perm(user, "users.admin"):
-        if response is not None:
-            response.status_code = status.HTTP_403_FORBIDDEN
-        return {"error": "forbidden"}
+    try:
+        # Admin only
+        if not has_perm(user, "users.admin"):
+            if response is not None:
+                response.status_code = status.HTTP_403_FORBIDDEN
+            return {"error": "forbidden"}
 
-    tl: TradeLine | None = db.get(TradeLine, line_id)
-    if not tl:
-        if response is not None:
-            response.status_code = status.HTTP_404_NOT_FOUND
-        return {"error": "trade line not found"}
+        tl: TradeLine | None = db.get(TradeLine, line_id)
+        if not tl:
+            if response is not None:
+                response.status_code = status.HTTP_404_NOT_FOUND
+            return {"error": "trade line not found"}
 
-    tr: Trade | None = db.get(Trade, tl.trade_id)
-    if not tr or tr.structure_id != user.structure_id:
-        if response is not None:
-            response.status_code = status.HTTP_404_NOT_FOUND
-        return {"error": "trade line not found"}
+        tr: Trade | None = db.get(Trade, tl.trade_id)
+        if not tr or tr.structure_id != user.structure_id:
+            if response is not None:
+                response.status_code = status.HTTP_404_NOT_FOUND
+            return {"error": "trade line not found"}
 
-    trade_id = tr.id
+        trade_id = tr.id
 
-    db.delete(tl)
-    db.flush()
+        db.delete(tl)
+        db.flush()
 
-    remaining = db.query(TradeLine.id).filter(TradeLine.trade_id == trade_id).count()
-    deleted_trade = False
-    if remaining == 0:
-        db.delete(tr)
-        deleted_trade = True
+        remaining = db.query(TradeLine.id).filter(TradeLine.trade_id == trade_id).count()
+        deleted_trade = False
+        if remaining == 0:
+            db.delete(tr)
+            deleted_trade = True
 
-    db.commit()
-    return {"deleted_line_id": line_id, "trade_id": trade_id, "deleted_trade": deleted_trade}
+        db.commit()
+        return {"deleted_line_id": line_id, "trade_id": trade_id, "deleted_trade": deleted_trade}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete trade line") from e

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import List, Dict
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -62,52 +62,55 @@ def inventory_summary(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    asof = _as_of_or_now(as_of)
+    try:
+        asof = _as_of_or_now(as_of)
 
-    sql = _MOVEMENTS_CTE + """
-    , by_item AS (
-      SELECT item_id,
-             SUM(CASE WHEN :include_external THEN qty
-                      WHEN is_external THEN 0
-                      ELSE qty END)::bigint AS qty
-      FROM mov_join
-      GROUP BY item_id
-    )
-    SELECT i.id AS item_id, i.name AS item_name, COALESCE(b.qty,0) AS qty
-    FROM items i
-    LEFT JOIN by_item b ON b.item_id = i.id
-    -- items table is global; we only show those with qty != 0 to keep it tidy
-    WHERE COALESCE(b.qty,0) <> 0
-    ORDER BY (COALESCE(b.qty,0)) DESC, i.name ASC
-    """
-    rows = db.execute(
-        text(sql),
-        {"sid": user.structure_id, "as_of": asof, "include_external": include_external},
-    ).mappings().all()
+        sql = _MOVEMENTS_CTE + """
+        , by_item AS (
+          SELECT item_id,
+                 SUM(CASE WHEN :include_external THEN qty
+                          WHEN is_external THEN 0
+                          ELSE qty END)::bigint AS qty
+          FROM mov_join
+          GROUP BY item_id
+        )
+        SELECT i.id AS item_id, i.name AS item_name, COALESCE(b.qty,0) AS qty
+        FROM items i
+        LEFT JOIN by_item b ON b.item_id = i.id
+        -- items table is global; we only show those with qty != 0 to keep it tidy
+        WHERE COALESCE(b.qty,0) <> 0
+        ORDER BY (COALESCE(b.qty,0)) DESC, i.name ASC
+        """
+        rows = db.execute(
+            text(sql),
+            {"sid": user.structure_id, "as_of": asof, "include_external": include_external},
+        ).mappings().all()
 
-    out_rows: List[InventoryItemRow] = []
-    grand = 0.0
-    for r in rows:
-        item_id = int(r["item_id"])
-        qty = int(r["qty"])
-        v = get_item_value_at(db, user.structure_id, item_id, asof)
-        unit = float(v or 0)
-        total = round(qty * unit, 2)
-        grand += total
-        out_rows.append(InventoryItemRow(
-            item_id=item_id,
-            item_name=r["item_name"],
-            qty=qty,
-            unit_value=round(unit, 2),
-            total_value=total,
-        ))
+        out_rows: List[InventoryItemRow] = []
+        grand = 0.0
+        for r in rows:
+            item_id = int(r["item_id"])
+            qty = int(r["qty"])
+            v = get_item_value_at(db, user.structure_id, item_id, asof)
+            unit = float(v or 0)
+            total = round(qty * unit, 2)
+            grand += total
+            out_rows.append(InventoryItemRow(
+                item_id=item_id,
+                item_name=r["item_name"],
+                qty=qty,
+                unit_value=round(unit, 2),
+                total_value=total,
+            ))
 
-    return InventorySummary(
-        as_of=asof.isoformat(),
-        include_external=include_external,
-        rows=out_rows,
-        grand_total_value=round(grand, 2),
-    )
+        return InventorySummary(
+            as_of=asof.isoformat(),
+            include_external=include_external,
+            rows=out_rows,
+            grand_total_value=round(grand, 2),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to compute inventory summary") from e
 
 @router.get("/items/{item_id}/by-location", response_model=List[ItemByLocationRow])
 def item_by_location(

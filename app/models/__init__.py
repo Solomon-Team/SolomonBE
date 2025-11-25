@@ -2,6 +2,7 @@
 from app.core.database import Base  # re-export for convenience
 
 # Import all model modules so their tables attach to Base.metadata
+from app.models.structure import Structure
 from app.models.user import User
 from app.models.item import Item
 from app.models.item_category import ItemCategory
@@ -12,16 +13,20 @@ from app.models.trade_line import TradeLine
 from app.models.location import Location
 from app.models.location_guild_master import LocationGuildMaster
 from app.models.role import Role
-from .movement_reason import MovementReason            # NEW
-from .inventory import PlayerInventory, PlayerInventoryLedger  # NEW
-from .user_profile import UserProfile                  # NEW
-from .mc import MCLivePlayer, MCPlayerInventorySnapshot, MCContainerSnapshot, MCIngestToken, MCPositionHistory
+from app.models.movement_reason import MovementReason
+from app.models.inventory import PlayerInventory, PlayerInventoryLedger
+from app.models.user_profile import UserProfile
+from app.models.magic_login_token import MagicLoginToken
+from app.models.structure_join_code import StructureJoinCode
+from app.models.auth_audit_log import AuthAuditLog
+from app.models.mc import MCLivePlayer, MCPlayerInventorySnapshot, MCContainerSnapshot, MCIngestToken, MCPositionHistory
 from app.models.party import Party, PartyMember
 from app.models.message import Message, MessageTarget, MessageRecipientStatus
 from app.models.message_position_policy import MessagePositionPolicy
 
 __all__ = [
     "Base",
+    "Structure",
     "User",
     "Item",
     "ItemCategory",
@@ -36,6 +41,9 @@ __all__ = [
     "PlayerInventory",
     "PlayerInventoryLedger",
     "UserProfile",
+    "MagicLoginToken",
+    "StructureJoinCode",
+    "AuthAuditLog",
     "MCIngestToken",
     "MCPositionHistory",
     "MCLivePlayer",

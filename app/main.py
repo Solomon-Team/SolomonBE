@@ -3,9 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from app.core.database import SessionLocal
-from app.routes import auth, trades, users, items, item_values, structure_settings, locations, roles, rbac, inventory, \
-    movement_reasons, item_icons, player_inventory, user_profiles, mc, auth_mc, parties, mc_messages, messages
-from app.services.seed import seed_examples
+from app.routes import (
+    auth, mc_auth, structures, players,
+    trades, users, items, item_values, structure_settings, locations, roles, rbac, inventory,
+    movement_reasons, item_icons, player_inventory, user_profiles, mc, parties, mc_messages, messages
+)
+from app.services.seed_magic_auth import seed_magic_auth_system
 
 
 app = FastAPI()
@@ -25,8 +28,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
+# Routers - New Auth System
 app.include_router(auth.router)
+app.include_router(mc_auth.router)
+app.include_router(structures.router)
+app.include_router(players.router)
+
+# Other Routers
 app.include_router(items.router)
 app.include_router(item_values.router)
 app.include_router(structure_settings.router)
@@ -41,7 +49,6 @@ app.include_router(item_icons.router)
 app.include_router(user_profiles.router)
 app.include_router(player_inventory.router)
 app.include_router(mc.router)
-app.include_router(auth_mc.router)
 app.include_router(parties.router)
 app.include_router(messages.router)
 app.include_router(mc_messages.router)
@@ -54,9 +61,9 @@ app.include_router(mc_messages.router)
 
 @app.on_event("startup")
 def on_startup():
-    # Idempotent full seed for a rich demo dataset
+    # Seed magic auth system with demo data
     db = SessionLocal()
     try:
-        seed_examples(db)
+        seed_magic_auth_system(db)
     finally:
         db.close()

@@ -34,6 +34,7 @@ def _validate_external_rules(db: Session, line: TradeLine, structure_id: str) ->
 def apply_user_ledgers_and_inventory(db: Session, trade: Trade) -> None:
     """
     For every TradeLine with a user side, write ledger rows and upsert PlayerInventory.
+    NOTE: This function does NOT commit - the caller is responsible for commit/rollback.
     """
     from app.models.inventory import PlayerInventory, PlayerInventoryLedger
     from app.models.item import Item
@@ -67,8 +68,6 @@ def apply_user_ledgers_and_inventory(db: Session, trade: Trade) -> None:
                 timestamp=trade.timestamp,
             ))
             _upsert_snapshot(db, line.to_user_id, line.item_id, structure_id, int(line.quantity))
-
-    db.commit()
 
 def _upsert_snapshot(db: Session, user_id: int, item_id: int, structure_id: str, delta: int) -> None:
     from app.models.inventory import PlayerInventory
