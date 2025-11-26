@@ -6,7 +6,8 @@ from app.core.database import SessionLocal
 from app.routes import (
     auth, mc_auth, structures, players,
     trades, users, items, item_values, structure_settings, locations, roles, rbac, inventory,
-    movement_reasons, item_icons, player_inventory, user_profiles, mc, parties, mc_messages, messages
+    movement_reasons, item_icons, player_inventory, user_profiles, mc, parties, mc_messages, messages,
+    websockets, mc_broadcast
 )
 from app.services.seed_magic_auth import seed_magic_auth_system
 
@@ -52,6 +53,10 @@ app.include_router(mc.router)
 app.include_router(parties.router)
 app.include_router(messages.router)
 app.include_router(mc_messages.router)
+
+# WebSocket Routers
+app.include_router(websockets.router)
+app.include_router(mc_broadcast.router)
 
 
 
