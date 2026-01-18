@@ -97,6 +97,17 @@ async def websocket_endpoint(
         }
         await websocket.send_json(welcome_message)
 
+        # Send full chest state on connection
+        from app.services.chest_sync import get_all_chests
+        chests, summary = get_all_chests(db, user.structure_id)
+        chest_state_message = {
+            "type": "chest_full_state",
+            "chests": [c.model_dump(mode="json") for c in chests],
+            "summary": summary.model_dump(mode="json")
+        }
+        await websocket.send_json(chest_state_message)
+        logger.info(f"Sent full chest state to user {user.id}: {summary.total_chests} chests")
+
         # Main message loop with periodic ping
         ping_interval = 30.0  # seconds
         last_ping_time = asyncio.get_event_loop().time()

@@ -20,6 +20,7 @@ from app.models.magic_login_token import MagicLoginToken
 from app.models.structure_join_code import StructureJoinCode
 from app.models.auth_audit_log import AuthAuditLog
 from app.models.mc import MCLivePlayer, MCPlayerInventorySnapshot, MCContainerSnapshot, MCIngestToken, MCPositionHistory
+from app.models.chest_sync import ChestSyncSnapshot, ChestSyncHistory
 from app.models.party import Party, PartyMember
 from app.models.message import Message, MessageTarget, MessageRecipientStatus
 from app.models.message_position_policy import MessagePositionPolicy
@@ -49,6 +50,8 @@ __all__ = [
     "MCLivePlayer",
     "MCContainerSnapshot",
     "MCPlayerInventorySnapshot",
+    "ChestSyncSnapshot",
+    "ChestSyncHistory",
     "Party",
     "PartyMember",
     "Message",

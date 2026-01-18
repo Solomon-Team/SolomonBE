@@ -1,5 +1,6 @@
 # app/routes/mc.py
 from __future__ import annotations
+import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
@@ -17,7 +18,10 @@ from app.services.mc_ingest import (
 )
 from app.models.mc import MCIngestToken, MCLivePlayer, MCPlayerInventorySnapshot, MCContainerSnapshot
 
-router = APIRouter(prefix="/mc", tags=["minecraft"])
+logger = logging.getLogger("bookkeeper.mc.routes")
+logger.setLevel(logging.INFO)
+
+router = APIRouter(prefix="/api/mc", tags=["minecraft"])
 
 # ---------- Helpers ----------
 def _resolve_structure_id_from_ingest_token(db: Session, token: str) -> str:
@@ -37,7 +41,7 @@ def _resolve_structure_id_from_ingest_token(db: Session, token: str) -> str:
 
 # ---------- Ingest ----------
 @router.post("/events")
-def ingest_event(
+async def ingest_event(
     payload: MCEventIn,
     db: Session = Depends(get_db),
     x_ingest_token: str = Header(default="", alias="X-Ingest-Token"),
@@ -47,12 +51,12 @@ def ingest_event(
     upsert_live_player(db, structure_id, e, link_user=True)
     insert_history_throttled(db, structure_id, e)
     upsert_player_inventory_snapshot(db, structure_id, e)
-    upsert_container_snapshot(db, structure_id, e)
+    await upsert_container_snapshot(db, structure_id, e)
     db.commit()
     return {"status": "ok"}
 
 @router.post("/events/batch")
-def ingest_events_batch(
+async def ingest_events_batch(
     payload: MCEventBatchIn,
     db: Session = Depends(get_db),
     x_ingest_token: str = Header(default="", alias="X-Ingest-Token"),
@@ -64,7 +68,7 @@ def ingest_events_batch(
         upsert_live_player(db, structure_id, e, link_user=True)
         insert_history_throttled(db, structure_id, e)
         upsert_player_inventory_snapshot(db, structure_id, e)
-        upsert_container_snapshot(db, structure_id, e)
+        await upsert_container_snapshot(db, structure_id, e)
         accepted += 1
     db.commit()
     return {"status": "ok", "accepted": accepted}
@@ -151,8 +155,36 @@ def items_dump(
     }
     return {"players": players, "chests": chests}
 
+
+@router.get("/chests")
+def get_chests(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    Get complete list of all known chests in user's structure.
+
+    **Authentication**: JWT required (any authenticated user)
+
+    **Use Cases**:
+    - Initial data load for client applications
+    - Recovery from faulty WebSocket data
+    - Polling fallback (though WebSocket is preferred)
+
+    **Returns**:
+    - `chests`: Array of chest snapshots with coordinates, items, signs
+    - `summary`: Aggregate statistics (total chests, last update, item counts)
+    """
+    from app.services.chest_sync import get_all_chests
+    from app.schemas.mc import ChestListOut
+
+    structure_id = current_user.structure_id
+    chests, summary = get_all_chests(db, structure_id)
+
+    return ChestListOut(chests=chests, summary=summary)
+
 @router.post("/events/jwt")
-def ingest_event_jwt(
+async def ingest_event_jwt(
     payload: MCEventIn,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),  # any authenticated user
@@ -164,6 +196,12 @@ def ingest_event_jwt(
     preferred_name = (prof.minecraft_username if prof and getattr(prof, "minecraft_username", None) else None)
 
     e = payload.normalized()
+
+    # Log container events for debugging
+    if e.container:
+        logger.info(f"Container event from {e.username} at ({e.x}, {e.y}, {e.z})")
+        logger.debug(f"Container has {len(e.container)} keys: {list(e.container.keys())}")
+
     # force link to this user, override display username if we have one
     upsert_live_player(
         db,
@@ -175,6 +213,6 @@ def ingest_event_jwt(
     )
     insert_history_throttled(db, structure_id, e)
     upsert_player_inventory_snapshot(db, structure_id, e)
-    upsert_container_snapshot(db, structure_id, e)
+    await upsert_container_snapshot(db, structure_id, e)
     db.commit()
     return {"status": "ok"}

@@ -1,5 +1,6 @@
 # app/services/mc_ingest.py
 from __future__ import annotations
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Iterable
 from sqlalchemy.orm import Session
@@ -16,6 +17,9 @@ from hashlib import sha256
 # from app.models.user_profile import UserProfile
 from app.models.user import User  # for FK only
 from app.models.user_profile import UserProfile  # adjust if needed
+
+logger = logging.getLogger("bookkeeper.mc_ingest")
+logger.setLevel(logging.INFO)
 
 HISTORY_MIN_INTERVAL_S = 2  # throttle: store at most once per 2s per uuid
 
@@ -139,16 +143,48 @@ def upsert_player_inventory_snapshot(db: Session, structure_id: str, e: MCEventN
         }
     ))
 
-def upsert_container_snapshot(db: Session, structure_id: str, e: MCEventNorm):
-    if not e.container or "pos" not in e.container:
+async def upsert_container_snapshot(db: Session, structure_id: str, e: MCEventNorm):
+    """
+    Process container snapshot from Minecraft client.
+
+    The container data can come in two formats:
+    1. NEW FORMAT (from JWT endpoint): Container at e.container, position at e.x/e.y/e.z
+    2. OLD FORMAT (from token endpoint): Container with embedded "pos" key
+
+    Note: Empty chests send e.container = {} which is valid and should be processed.
+    """
+    if e.container is None:
         return
+
+    # Extract position - try container first (old format), then root level (new format)
     pos = e.container.get("pos") or e.container.get("Pos") or e.container.get("position")
-    try:
-        cx, cy, cz = int(pos[0]), int(pos[1]), int(pos[2])
-    except Exception:
-        return
+
+    if pos:
+        # Old format: position embedded in container
+        try:
+            cx, cy, cz = int(pos[0]), int(pos[1]), int(pos[2])
+        except Exception:
+            logger.warning(f"Invalid container position format: {pos}")
+            return
+    else:
+        # New format: position at root level (from /api/mc/events/jwt)
+        try:
+            cx, cy, cz = int(e.x), int(e.y), int(e.z)
+        except (ValueError, TypeError):
+            logger.warning(f"Container snapshot missing valid position. UUID: {e.uuid}")
+            return
+
+    # Extract items - handle both nested and direct formats
     items = e.container.get("items")
+    if items is None:
+        # If no "items" key, assume container IS the items dict
+        # Filter out position-related keys
+        items = {k: v for k, v in e.container.items()
+                 if k not in ["pos", "Pos", "position"]}
+
     signs = e.signs
+
+    # OLD TABLE: Backward compatibility write
     insert_stmt = pg_insert(MCContainerSnapshot).values(
         structure_id=structure_id, x=cx, y=cy, z=cz,
         items_json=items, signs_json=signs,
@@ -165,3 +201,47 @@ def upsert_container_snapshot(db: Session, structure_id: str, e: MCEventNorm):
             "last_seen_at": e.ts
         }
     ))
+
+    # NEW TABLE: ChestSync optimized table
+    from app.models.chest_sync import ChestSyncSnapshot, ChestSyncHistory
+    from app.services.chest_sync import calculate_item_count
+
+    item_count = calculate_item_count(items)
+
+    insert_stmt_new = pg_insert(ChestSyncSnapshot).values(
+        structure_id=structure_id, x=cx, y=cy, z=cz,
+        items_json=items, signs_json=signs,
+        opened_by_uuid=e.uuid, opened_by_username=e.username,
+        last_seen_at=e.ts,
+        item_count=item_count
+    )
+    db.execute(insert_stmt_new.on_conflict_do_update(
+        index_elements=["structure_id", "x", "y", "z"],
+        set_={
+            "items_json": func.coalesce(insert_stmt_new.excluded.items_json, ChestSyncSnapshot.items_json),
+            "signs_json": func.coalesce(insert_stmt_new.excluded.signs_json, ChestSyncSnapshot.signs_json),
+            "opened_by_uuid": e.uuid,
+            "opened_by_username": e.username,
+            "last_seen_at": e.ts,
+            "item_count": item_count
+        }
+    ))
+
+    # HISTORY TABLE: Append-only history record
+    history_record = ChestSyncHistory(
+        structure_id=structure_id,
+        x=cx, y=cy, z=cz,
+        items_json=items,
+        signs_json=signs,
+        opened_by_uuid=e.uuid,
+        opened_by_username=e.username,
+        recorded_at=e.ts
+    )
+    db.add(history_record)
+
+    # Flush to database BEFORE broadcasting (so broadcast can query the data)
+    db.flush()
+
+    # Broadcast to WebSocket clients
+    from app.services.chest_sync import broadcast_chest_update
+    await broadcast_chest_update(db, structure_id, cx, cy, cz)

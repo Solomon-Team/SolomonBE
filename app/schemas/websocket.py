@@ -69,6 +69,26 @@ class WSError(WSMessageBase):
     message: str = Field(..., description="Human-readable error message")
 
 
+class WSChestUpdate(WSMessageBase):
+    """
+    Server-to-client incremental chest update.
+    Sent when any client opens a chest.
+    """
+    type: Literal["chest_update"]
+    chest: dict = Field(..., description="ChestSnapshotOut serialized")
+    summary: dict = Field(..., description="ChestSummaryStats serialized")
+
+
+class WSChestFullState(WSMessageBase):
+    """
+    Server-to-client full chest state.
+    Sent on initial WebSocket connection.
+    """
+    type: Literal["chest_full_state"]
+    chests: List[dict] = Field(..., description="List of ChestSnapshotOut serialized")
+    summary: dict = Field(..., description="ChestSummaryStats serialized")
+
+
 # Example usage documentation
 """
 WebSocket Message Protocol Examples:

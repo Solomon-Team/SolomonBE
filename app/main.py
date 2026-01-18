@@ -72,3 +72,14 @@ def on_startup():
         seed_magic_auth_system(db)
     finally:
         db.close()
+
+
+# ChestSync TTL Cleanup Job
+# Schedule this to run daily using cron or APScheduler:
+# from app.services.chest_sync_cleanup import run_cleanup_job
+# Example cron: 0 2 * * * (daily at 2 AM)
+# Example APScheduler:
+# from apscheduler.schedulers.background import BackgroundScheduler
+# scheduler = BackgroundScheduler()
+# scheduler.add_job(lambda: run_cleanup_job(SessionLocal()), 'cron', hour=2)
+# scheduler.start()

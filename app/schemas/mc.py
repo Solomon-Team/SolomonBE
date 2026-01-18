@@ -91,3 +91,44 @@ class MCUuidDetailOut(BaseModel):
 class MCItemsOut(BaseModel):
     players: dict
     chests: dict
+
+
+# ChestSync Schemas
+class ChestSnapshotOut(BaseModel):
+    """Single chest snapshot for client consumption"""
+    x: int
+    y: int
+    z: int
+    items: Optional[dict] = None
+    signs: Optional[list] = None
+    opened_by: Optional[dict] = None
+    last_seen_at: datetime
+
+    @classmethod
+    def from_model(cls, container) -> "ChestSnapshotOut":
+        """Convert database model to schema"""
+        return cls(
+            x=container.x,
+            y=container.y,
+            z=container.z,
+            items=container.items_json,
+            signs=container.signs_json,
+            opened_by={
+                "uuid": container.opened_by_uuid,
+                "username": container.opened_by_username
+            } if container.opened_by_uuid else None,
+            last_seen_at=container.last_seen_at
+        )
+
+
+class ChestSummaryStats(BaseModel):
+    """Aggregate statistics for chest inventory"""
+    total_chests: int
+    last_updated_at: Optional[datetime] = None
+    total_item_slots: int = 0
+
+
+class ChestListOut(BaseModel):
+    """Response for GET /mc/chests endpoint"""
+    chests: List[ChestSnapshotOut]
+    summary: ChestSummaryStats
