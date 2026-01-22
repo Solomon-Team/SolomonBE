@@ -173,6 +173,17 @@ async def handle_client_message(message_text: str, user: User, manager: WebSocke
             logger.info(f"User {user.id} acknowledged messages: {message_ids}")
             # Future: Update MessageRecipientStatus in database to mark as ACKED
 
+        elif message_type == "load_schematic_ack":
+            # Handle schematic load acknowledgment from SolomonMatica
+            request_id = message.get("request_id")
+            success = message.get("success", False)
+            error = message.get("error")
+            if success:
+                logger.info(f"User {user.id} successfully loaded schematic (request_id={request_id})")
+            else:
+                logger.warning(f"User {user.id} failed to load schematic (request_id={request_id}): {error}")
+            # Future: Could store load request status in database for tracking
+
         else:
             logger.warning(f"Unknown message type from user {user.id}: {message_type}")
 

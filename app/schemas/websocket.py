@@ -89,6 +89,30 @@ class WSChestFullState(WSMessageBase):
     summary: dict = Field(..., description="ChestSummaryStats serialized")
 
 
+class WSLoadSchematic(WSMessageBase):
+    """
+    Server-to-client schematic load request.
+    Instructs the client (SolomonMatica) to load and place a schematic.
+    """
+    type: Literal["load_schematic"]
+    schematic_id: str = Field(..., description="ID of the schematic to load")
+    x: int = Field(..., description="X coordinate to place schematic")
+    y: int = Field(..., description="Y coordinate to place schematic")
+    z: int = Field(..., description="Z coordinate to place schematic")
+    request_id: str = Field(..., description="Unique request ID for tracking")
+
+
+class WSLoadSchematicAck(WSMessageBase):
+    """
+    Client-to-server acknowledgment for schematic load request.
+    Reports success or failure of schematic loading.
+    """
+    type: Literal["load_schematic_ack"]
+    request_id: str = Field(..., description="Request ID from load_schematic message")
+    success: bool = Field(..., description="Whether the schematic was loaded successfully")
+    error: str | None = Field(None, description="Error message if unsuccessful")
+
+
 # Example usage documentation
 """
 WebSocket Message Protocol Examples:

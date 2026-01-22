@@ -24,6 +24,7 @@ from app.models.chest_sync import ChestSyncSnapshot, ChestSyncHistory
 from app.models.party import Party, PartyMember
 from app.models.message import Message, MessageTarget, MessageRecipientStatus
 from app.models.message_position_policy import MessagePositionPolicy
+from app.models.schematic import Schematic, SchematicSplitResult
 
 __all__ = [
     "Base",
@@ -57,5 +58,7 @@ __all__ = [
     "Message",
     "MessageTarget",
     "MessageRecipientStatus",
-    "MessagePositionPolicy"
+    "MessagePositionPolicy",
+    "Schematic",
+    "SchematicSplitResult"
 ]

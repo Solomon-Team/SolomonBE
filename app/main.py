@@ -7,7 +7,7 @@ from app.routes import (
     auth, mc_auth, structures, players,
     trades, users, items, item_values, structure_settings, locations, roles, rbac, inventory,
     movement_reasons, item_icons, player_inventory, user_profiles, mc, parties, mc_messages, messages,
-    websockets, mc_broadcast
+    websockets, mc_broadcast, schematics
 )
 from app.services.seed_magic_auth import seed_magic_auth_system
 
@@ -57,6 +57,9 @@ app.include_router(mc_messages.router)
 # WebSocket Routers
 app.include_router(websockets.router)
 app.include_router(mc_broadcast.router)
+
+# Schematic Routers
+app.include_router(schematics.router)
 
 
 
